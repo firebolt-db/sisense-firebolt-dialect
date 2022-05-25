@@ -1,0 +1,2 @@
+# SQL dialect implementation for Firebolt
+This repo contains the [SqlDialect implementation](FireboltSqlDialect.java) needed in order for [Apache Calcite](https://github.com/apache/calcite) to support Firebolt.
