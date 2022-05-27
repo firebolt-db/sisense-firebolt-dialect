@@ -88,7 +88,7 @@ public class FireboltSqlDialect extends SqlDialect {
   /** An unquoted Firebolt identifier must start with a letter and be followed
    * by zero or more letters, digits or _. */
   private static final Pattern IDENTIFIER_REGEX =
-          Pattern.compile("[A-Za-z][A-Za-z0-9_]*");
+          Pattern.compile("[A-Za-z]\\w*");
 
   @Override public boolean supportsCharSet() {
     return false;
@@ -176,23 +176,20 @@ public class FireboltSqlDialect extends SqlDialect {
       RelToSqlConverterUtil.specialOperatorByName("SUBSTR")
               .unparse(writer, call, 0, 0);
     } else {
-      switch (call.getKind()) {
-        case FLOOR:
-          if (call.operandCount() != 2) {
-            super.unparseCall(writer, call, leftPrec, rightPrec);
-            return;
-          }
-
-          final SqlLiteral timeUnitNode = call.operand(1);
-          final TimeUnitRange timeUnit = timeUnitNode.getValueAs(TimeUnitRange.class);
-
-          SqlCall call2 = SqlFloorFunction.replaceTimeUnitOperand(call, timeUnit.name(),
-                  timeUnitNode.getParserPosition());
-          SqlFloorFunction.unparseDatetimeFunction(writer, call2, "DATE_TRUNC", false);
-          break;
-
-        default:
+      if (call.getKind() == SqlKind.FLOOR) {
+        if (call.operandCount() != 2) {
           super.unparseCall(writer, call, leftPrec, rightPrec);
+          return;
+        }
+
+        final SqlLiteral timeUnitNode = call.operand(1);
+        final TimeUnitRange timeUnit = timeUnitNode.getValueAs(TimeUnitRange.class);
+
+        SqlCall call2 = SqlFloorFunction.replaceTimeUnitOperand(call, timeUnit.name(),
+                timeUnitNode.getParserPosition());
+        SqlFloorFunction.unparseDatetimeFunction(writer, call2, "DATE_TRUNC", false);
+      } else {
+        super.unparseCall(writer, call, leftPrec, rightPrec);
       }
     }
   }
