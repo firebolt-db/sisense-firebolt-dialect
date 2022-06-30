@@ -1,0 +1,19 @@
+plugins {
+    id 'java'
+    id "org.sonarqube" version "3.4.0.2513"
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation group: 'org.apache.calcite', name: 'calcite-core', version: '1.30.0'
+}
+sonarqube {
+    properties {
+        property "sonar.projectKey", "firebolt-db_sisense-firebolt-driver"
+        property "sonar.organization", "firebolt-db"
+        property "sonar.host.url", "https://sonarcloud.io"
+    }
+}
