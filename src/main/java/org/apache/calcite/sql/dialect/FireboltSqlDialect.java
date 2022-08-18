@@ -14,40 +14,36 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.calcite.sql.dialect;
-
+//package org.apache.calcite.sql.dialect;
+import org.apache.calcite.avatica.util.TimeUnit;
 import org.apache.calcite.avatica.util.TimeUnitRange;
 import org.apache.calcite.config.NullCollation;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.sql.SqlAlienSystemTypeNameSpec;
-import org.apache.calcite.sql.SqlCall;
-import org.apache.calcite.sql.SqlDataTypeSpec;
-import org.apache.calcite.sql.SqlDialect;
-import org.apache.calcite.sql.SqlKind;
-import org.apache.calcite.sql.SqlLiteral;
-import org.apache.calcite.sql.SqlNode;
-import org.apache.calcite.sql.SqlOperator;
-import org.apache.calcite.sql.SqlWriter;
+import org.apache.calcite.sql.SqlIntervalLiteral;
+import org.apache.calcite.sql.SqlIntervalQualifier;
+import org.apache.calcite.sql.*;
+import org.apache.calcite.sql.fun.SqlBetweenOperator;
 import org.apache.calcite.sql.fun.SqlFloorFunction;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.util.RelToSqlConverterUtil;
-
 import com.google.common.collect.ImmutableList;
-
 import org.checkerframework.checker.nullness.qual.Nullable;
-
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
+import static org.apache.calcite.sql.fun.SqlBetweenOperator.*;
+
 /**
  * A SqlDialect implementation for the Firebolt database.
  */
 public class FireboltSqlDialect extends SqlDialect {
-  public static final SqlDialect.Context DEFAULT_CONTEXT = SqlDialect.EMPTY_CONTEXT
-          .withDatabaseProduct(DatabaseProduct.FIREBOLT)
+  public static final Context DEFAULT_CONTEXT = SqlDialect.EMPTY_CONTEXT
+          //.withDatabaseProduct("FIREBOLT") //DatabaseProduct.FIREBOLT
           .withIdentifierQuoteString("\"")
           .withNullCollation(NullCollation.LOW);
 
@@ -59,6 +55,10 @@ public class FireboltSqlDialect extends SqlDialect {
     super(context);
   }
 
+  /** Creates a FireboltSqlDialect. */
+  public FireboltSqlDialect() {
+    super(DEFAULT_CONTEXT);
+  }
   /** Reserved Keywords for Firebolt. */
   private static final List<String> RESERVED_KEYWORDS =
           ImmutableList.copyOf(
@@ -84,11 +84,13 @@ public class FireboltSqlDialect extends SqlDialect {
                           "UNKNOWN_CHAR", "UNNEST", "UNTERMINATED_STRING",
                           "UPDATE", "USING", "VARCHAR", "WEEK", "WHEN", "WHERE",
                           "WITH"));
-
   /** An unquoted Firebolt identifier must start with a letter and be followed
    * by zero or more letters, digits or _. */
   private static final Pattern IDENTIFIER_REGEX =
           Pattern.compile("[A-Za-z][A-Za-z0-9_]*");
+
+  static final SqlWriter.FrameType FRAME_TYPE =
+          SqlWriter.FrameTypeEnum.create("BETWEEN");
 
   @Override public boolean supportsCharSet() {
     return false;
@@ -191,9 +193,82 @@ public class FireboltSqlDialect extends SqlDialect {
           SqlFloorFunction.unparseDatetimeFunction(writer, call2, "DATE_TRUNC", false);
           break;
 
+        case BETWEEN:
+          SqlBetweenOperator sqlBetweenOperator = (SqlBetweenOperator) call.getOperator();
+          if (sqlBetweenOperator.flag == SqlBetweenOperator.Flag.ASYMMETRIC) {
+            final SqlWriter.Frame frame =
+                    writer.startList(FRAME_TYPE, "", "");
+            call.operand(VALUE_OPERAND).unparse(writer, sqlBetweenOperator.getLeftPrec(), 0);
+            unparseBetweenOperatorRightSide(writer, call, sqlBetweenOperator, frame);
+          }
+          else {
+            super.unparseCall(writer, call, leftPrec, rightPrec);
+          }
+          break;
+
         default:
           super.unparseCall(writer, call, leftPrec, rightPrec);
       }
     }
+  }
+
+  /** Firebolt interval syntax: sign INTERVAL int64 time_unit. */
+  @Override public void unparseSqlIntervalLiteral(SqlWriter writer,
+                                                  SqlIntervalLiteral literal, int leftPrec, int rightPrec) {
+    SqlIntervalLiteral.IntervalValue interval =
+            literal.getValueAs(SqlIntervalLiteral.IntervalValue.class);
+    writer.keyword("INTERVAL");
+    writer.print("'");
+    try {
+      Long.parseLong(interval.getIntervalLiteral());
+    } catch (NumberFormatException e) {
+      throw new RuntimeException("Only INT64 is supported as the interval value for Firebolt.");
+    }
+    writer.literal(interval.getIntervalLiteral());
+    unparseSqlIntervalQualifier(writer, interval.getIntervalQualifier(),
+            RelDataTypeSystem.DEFAULT);
+    writer.print("'");
+  }
+
+  @Override public void unparseSqlIntervalQualifier(
+          SqlWriter writer, SqlIntervalQualifier qualifier, RelDataTypeSystem typeSystem) {
+    final String start = validate(qualifier.timeUnitRange.startUnit).name();
+    if (qualifier.timeUnitRange.endUnit == null) {
+      writer.keyword(start);
+    } else {
+      throw new RuntimeException("Range time unit is not supported for Firebolt.");
+    }
+  }
+
+  private static TimeUnit validate(TimeUnit timeUnit) {
+    switch (timeUnit) {
+      case MICROSECOND:
+      case MILLISECOND:
+      case SECOND:
+      case MINUTE:
+      case HOUR:
+      case DAY:
+      case WEEK:
+      case MONTH:
+      case YEAR:
+      case DECADE:
+      case CENTURY:
+      case MILLENNIUM:
+        return timeUnit;
+      default:
+        throw new RuntimeException("Time unit " + timeUnit + " is not supported for Firebolt.");
+    }
+  }
+
+  private void unparseBetweenOperatorRightSide(SqlWriter writer, SqlCall call, SqlBetweenOperator sqlBetweenOperator,
+                                               SqlWriter.Frame frame) {
+    writer.sep(sqlBetweenOperator.getName().contains("NOT BETWEEN") ? "NOT BETWEEN" : "BETWEEN");
+    final SqlNode lower = call.operand(LOWER_OPERAND);
+    final SqlNode upper = call.operand(UPPER_OPERAND);
+    int lowerPrec = new SqlBetweenOperator.AndFinder().containsAnd(lower) ? 100 : 0;
+    lower.unparse(writer, lowerPrec, lowerPrec);
+    writer.sep("AND");
+    upper.unparse(writer, 0, sqlBetweenOperator.getRightPrec());
+    writer.endList(frame);
   }
 }
