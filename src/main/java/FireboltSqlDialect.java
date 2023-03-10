@@ -138,13 +138,9 @@ public class FireboltSqlDialect extends SqlDialect {
                 // Firebolt has no CHAR, so instead cast to VARCHAR
                 castSpec = "VARCHAR";
                 break;
-            case DECIMAL:
-                // Firebolt has no DECIMAL, so instead cast to FLOAT
-                castSpec = "FLOAT";
-                break;
             case REAL:
                 // Firebolt has no REAL, so instead cast to DOUBLE
-                castSpec = "DOUBLE";
+                castSpec = "FLOAT";
                 break;
             default:
                 return super.getCastSpec(type);
