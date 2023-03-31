@@ -24,9 +24,7 @@ import org.apache.calcite.sql.SqlAlienSystemTypeNameSpec;
 import org.apache.calcite.sql.SqlIntervalLiteral;
 import org.apache.calcite.sql.SqlIntervalQualifier;
 import org.apache.calcite.sql.*;
-import org.apache.calcite.sql.fun.SqlBetweenOperator;
-import org.apache.calcite.sql.fun.SqlFloorFunction;
-import org.apache.calcite.sql.fun.SqlStdOperatorTable;
+import org.apache.calcite.sql.fun.*;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.util.RelToSqlConverterUtil;
 import com.google.common.collect.ImmutableList;
@@ -167,6 +165,16 @@ public class FireboltSqlDialect extends SqlDialect {
         }
     }
     @Override public void unparseCall(SqlWriter writer, SqlCall call, int leftPrec, int rightPrec) {
+        if (call.getOperator().toString().contains("ILIKE")) {
+            call.operand(0).unparse(writer, 0, 0);
+            if (isNegatedLike(call)) {
+                writer.print("NOT ");
+            }
+            writer.print("ILIKE ");
+            call.operand(1).unparse(writer, 0, 0);
+
+            return;
+        }
         if (call.getOperator() == SqlStdOperatorTable.SUBSTRING) {
             RelToSqlConverterUtil.specialOperatorByName("SUBSTR")
                     .unparse(writer, call, 0, 0);
@@ -261,5 +269,9 @@ public class FireboltSqlDialect extends SqlDialect {
         writer.sep("AND");
         upper.unparse(writer, 0, sqlBetweenOperator.getRightPrec());
         writer.endList(frame);
+    }
+
+    private boolean isNegatedLike(SqlCall call) {
+        return (call.getOperator() instanceof SqlLikeOperator) && (((SqlLikeOperator)(call.getOperator())).isNegated());
     }
 }
